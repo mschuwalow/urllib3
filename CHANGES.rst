@@ -1,3 +1,115 @@
+2.6.3 (2026-01-07)
+==================
+
+- Fixed a high-severity security issue where decompression-bomb safeguards of
+  the streaming API were bypassed when HTTP redirects were followed.
+  (`GHSA-38jv-5279-wg99 <https://github.com/urllib3/urllib3/security/advisories/GHSA-38jv-5279-wg99>`__)
+- Started treating ``Retry-After`` times greater than 6 hours as 6 hours by
+  default. (`#3743 <https://github.com/urllib3/urllib3/issues/3743>`__)
+- Fixed ``urllib3.connection.VerifiedHTTPSConnection`` on Emscripten.
+  (`#3752 <https://github.com/urllib3/urllib3/issues/3752>`__)
+
+
+2.6.2 (2025-12-11)
+==================
+
+- Fixed ``HTTPResponse.read_chunked()`` to properly handle leftover data in
+  the decoder's buffer when reading compressed chunked responses.
+  (`#3734 <https://github.com/urllib3/urllib3/issues/3734>`__)
+
+
+2.6.1 (2025-12-08)
+==================
+
+- Restore previously removed ``HTTPResponse.getheaders()`` and
+  ``HTTPResponse.getheader()`` methods.
+  (`#3731 <https://github.com/urllib3/urllib3/issues/3731>`__)
+
+
+2.6.0 (2025-12-05)
+==================
+
+Security
+--------
+
+- Fixed a security issue where streaming API could improperly handle highly
+  compressed HTTP content ("decompression bombs") leading to excessive resource
+  consumption even when a small amount of data was requested. Reading small
+  chunks of compressed data is safer and much more efficient now.
+  (`GHSA-2xpw-w6gg-jr37 <https://github.com/urllib3/urllib3/security/advisories/GHSA-2xpw-w6gg-jr37>`__)
+- Fixed a security issue where an attacker could compose an HTTP response with
+  virtually unlimited links in the ``Content-Encoding`` header, potentially
+  leading to a denial of service (DoS) attack by exhausting system resources
+  during decoding. The number of allowed chained encodings is now limited to 5.
+  (`GHSA-gm62-xv2j-4w53 <https://github.com/urllib3/urllib3/security/advisories/GHSA-gm62-xv2j-4w53>`__)
+
+.. caution::
+  - If urllib3 is not installed with the optional `urllib3[brotli]` extra, but
+    your environment contains a Brotli/brotlicffi/brotlipy package anyway, make
+    sure to upgrade it to at least Brotli 1.2.0 or brotlicffi 1.2.0.0 to
+    benefit from the security fixes and avoid warnings. Prefer using
+    `urllib3[brotli]` to install a compatible Brotli package automatically.
+
+  - If you use custom decompressors, please make sure to update them to
+    respect the changed API of ``urllib3.response.ContentDecoder``.
+
+
+Features
+--------
+
+- Enabled retrieval, deletion, and membership testing in ``HTTPHeaderDict`` using bytes keys. (`#3653 <https://github.com/urllib3/urllib3/issues/3653>`__)
+- Added host and port information to string representations of ``HTTPConnection``. (`#3666 <https://github.com/urllib3/urllib3/issues/3666>`__)
+- Added support for Python 3.14 free-threading builds explicitly. (`#3696 <https://github.com/urllib3/urllib3/issues/3696>`__)
+
+
+Removals
+--------
+
+- Removed the ``HTTPResponse.getheaders()`` method in favor of ``HTTPResponse.headers``.
+  Removed the ``HTTPResponse.getheader(name, default)`` method in favor of ``HTTPResponse.headers.get(name, default)``. (`#3622 <https://github.com/urllib3/urllib3/issues/3622>`__)
+
+
+Bugfixes
+--------
+
+- Fixed redirect handling in ``urllib3.PoolManager`` when an integer is passed
+  for the retries parameter. (`#3649 <https://github.com/urllib3/urllib3/issues/3649>`__)
+- Fixed ``HTTPConnectionPool`` when used in Emscripten with no explicit port. (`#3664 <https://github.com/urllib3/urllib3/issues/3664>`__)
+- Fixed handling of ``SSLKEYLOGFILE`` with expandable variables. (`#3700 <https://github.com/urllib3/urllib3/issues/3700>`__)
+
+
+Misc
+----
+
+- Changed the ``zstd`` extra to install ``backports.zstd`` instead of ``zstandard`` on Python 3.13 and before. (`#3693 <https://github.com/urllib3/urllib3/issues/3693>`__)
+- Improved the performance of content decoding by optimizing ``BytesQueueBuffer`` class. (`#3710 <https://github.com/urllib3/urllib3/issues/3710>`__)
+- Allowed building the urllib3 package with newer setuptools-scm v9.x. (`#3652 <https://github.com/urllib3/urllib3/issues/3652>`__)
+- Ensured successful urllib3 builds by setting Hatchling requirement to >= 1.27.0. (`#3638 <https://github.com/urllib3/urllib3/issues/3638>`__)
+
+
+2.5.0 (2025-06-18)
+==================
+
+Features
+--------
+
+- Added support for the ``compression.zstd`` module that is new in Python 3.14.
+  See `PEP 784 <https://peps.python.org/pep-0784/>`_ for more information. (`#3610 <https://github.com/urllib3/urllib3/issues/3610>`__)
+- Added support for version 0.5 of ``hatch-vcs`` (`#3612 <https://github.com/urllib3/urllib3/issues/3612>`__)
+
+
+Bugfixes
+--------
+
+- Fixed a security issue where restricting the maximum number of followed
+  redirects at the ``urllib3.PoolManager`` level via the ``retries`` parameter
+  did not work.
+- Made the Node.js runtime respect redirect parameters such as ``retries``
+  and ``redirects``.
+- Raised exception for ``HTTPResponse.shutdown`` on a connection already released to the pool. (`#3581 <https://github.com/urllib3/urllib3/issues/3581>`__)
+- Fixed incorrect `CONNECT` statement when using an IPv6 proxy with `connection_from_host`. Previously would not be wrapped in `[]`. (`#3615 <https://github.com/urllib3/urllib3/issues/3615>`__)
+
+
 2.4.0 (2025-04-10)
 ==================
 
@@ -29,7 +141,7 @@ Features
 --------
 
 - Added ``HTTPResponse.shutdown()`` to stop any ongoing or future reads for a specific response. It calls ``shutdown(SHUT_RD)`` on the underlying socket. This feature was `sponsored by LaunchDarkly <https://opencollective.com/urllib3/contributions/815307>`__. (`#2868 <https://github.com/urllib3/urllib3/issues/2868>`__)
-- Added support for JavaScript Promise Integration on Emscripten. This enables more efficient WebAssembly 
+- Added support for JavaScript Promise Integration on Emscripten. This enables more efficient WebAssembly
   requests and streaming, and makes it possible to use in Node.js if you launch it as  ``node --experimental-wasm-stack-switching``. (`#3400 <https://github.com/urllib3/urllib3/issues/3400>`__)
 - Added the ``proxy_is_tunneling`` property to ``HTTPConnection`` and ``HTTPSConnection``. (`#3285 <https://github.com/urllib3/urllib3/issues/3285>`__)
 - Added pickling support to ``NewConnectionError`` and ``NameResolutionError``. (`#3480 <https://github.com/urllib3/urllib3/issues/3480>`__)

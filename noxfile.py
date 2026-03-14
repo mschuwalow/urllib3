@@ -14,50 +14,65 @@ nox.options.default_venv_backend = "uv"
 
 def tests_impl(
     session: nox.Session,
-    extras: str = "socks,brotli,zstd,h2",
+    extras: str | None = None,
+    extra_dependencies: list[str] | None = None,
     # hypercorn dependency h2 compares bytes and strings
     # https://github.com/python-hyper/h2/issues/1236
     byte_string_comparisons: bool = False,
     integration: bool = False,
     pytest_extra_args: list[str] = [],
     dependency_group: str = "dev",
+    no_default_groups: bool = False,
 ) -> None:
     # Retrieve sys info from the Python implementation under test
     # to avoid enabling memray when nox runs under CPython but tests PyPy
     session_python_info = session.run(
         "python",
         "-c",
-        "import sys; print(sys.implementation.name, sys.version_info.releaselevel)",
+        "import sys; print(sys.implementation.name, sys.version_info.releaselevel, getattr(sys, '_is_gil_enabled', lambda: True)())",
         silent=True,
     ).strip()  # type: ignore[union-attr] # mypy doesn't know that silent=True  will return a string
-    implementation_name, release_level = session_python_info.split(" ")
+    implementation_name, release_level, _is_gil_enabled = session_python_info.split(" ")
+    free_threading = _is_gil_enabled == "False"
+
+    if extras is None:
+        # brotlicffi does not support free-threading
+        extras = "socks,zstd,h2" if free_threading else "socks,brotli,zstd,h2"
 
     # Install deps and the package itself.
     session.run_install(
         "uv",
         "sync",
         "--frozen",
+        *("--no-default-groups",) if no_default_groups else (),
         "--group",
         dependency_group,
         *(f"--extra={extra}" for extra in (extras.split(",") if extras else ())),
     )
+    if extra_dependencies:
+        session.install(*extra_dependencies)
     # Show the uv version.
     session.run("uv", "--version")
-    # Print the Python version and bytesize.
+    # Print the Python version, bytesize and free-threading status.
     session.run("python", "--version")
     session.run("python", "-c", "import struct; print(struct.calcsize('P') * 8)")
+    session.run(
+        "python",
+        "-c",
+        "import sys; print(getattr(sys, '_is_gil_enabled', lambda: True)())",
+    )
     # Print OpenSSL information.
     session.run("python", "-m", "OpenSSL.debug")
 
     memray_supported = True
-    if implementation_name != "cpython" or release_level != "final":
+    if implementation_name != "cpython" or release_level != "final" or free_threading:
         memray_supported = False
     elif sys.platform == "win32":
         memray_supported = False
 
     # Environment variables being passed to the pytest run.
     pytest_session_envvars = {
-        "PYTHONWARNINGS": "always::DeprecationWarning",
+        "PYTHONWARNINGS": "always::FutureWarning",
         "COVERAGE_CORE": "sysmon",
     }
 
@@ -91,12 +106,13 @@ def tests_impl(
 
 @nox.session(
     python=[
-        "3.9",
         "3.10",
         "3.11",
         "3.12",
         "3.13",
         "3.14",
+        "3.14t",
+        "3.15",
         "pypy3.10",
         "pypy3.11",
     ]
@@ -113,14 +129,34 @@ def test_integration(session: nox.Session) -> None:
     tests_impl(session, integration=True)
 
 
+# We use 3.13 in GitHub Actions.
+@nox.session(python="3.13")
+def test_min_pyopenssl(session: nox.Session) -> None:
+    """
+    Check that we do not break with the documented minimum supported
+    pyOpenSSL version.
+    """
+    session.env["UV_PROJECT_ENVIRONMENT"] = session.virtualenv.location
+    tests_impl(
+        session,
+        pytest_extra_args=["-k", "pyopenssl"],
+        dependency_group="dev-min-pyopenssl",
+        no_default_groups=True,
+    )
+
+
 @nox.session(python="3")
 def test_brotlipy(session: nox.Session) -> None:
     """Check that if 'brotlipy' is installed instead of 'brotli' or
     'brotlicffi' that we still don't blow up.
     """
     session.env["UV_PROJECT_ENVIRONMENT"] = session.virtualenv.location
-    session.install("brotlipy")
-    tests_impl(session, extras="socks", byte_string_comparisons=False)
+    tests_impl(
+        session,
+        extras="socks",
+        extra_dependencies=["brotlipy"],
+        byte_string_comparisons=False,
+    )
 
 
 def git_clone(session: nox.Session, git_url: str) -> None:
@@ -168,13 +204,6 @@ def downstream_requests(session: nox.Session) -> None:
     session.cd(tmp_dir)
     git_clone(session, "https://github.com/psf/requests")
     session.chdir("requests")
-    # https://github.com/psf/requests/pull/6924
-    session.run(
-        "git",
-        "apply",
-        f"{root}/ci/0001-requests-test-cert-key-usage.patch",
-        external=True,
-    )
     session.run("git", "rev-parse", "HEAD", external=True)
     session.install(".[socks]", silent=False)
     session.install("-r", "requirements-dev.txt", silent=False)
@@ -193,7 +222,7 @@ def format(session: nox.Session) -> None:
     lint(session)
 
 
-@nox.session(python="3.12")
+@nox.session()
 def lint(session: nox.Session) -> None:
     session.install("pre-commit")
     session.run("pre-commit", "run", "--all-files")
@@ -246,7 +275,7 @@ def emscripten(session: nox.Session, runner: str) -> None:
         dist_dir = Path(os.environ["PYODIDE_ROOT"]) / "dist"
     else:
         # we don't have a build tree
-        pyodide_version = "0.27.1"
+        pyodide_version = "0.28.1"
 
         pyodide_artifacts_path = Path(session.cache_dir) / f"pyodide-{pyodide_version}"
         if not pyodide_artifacts_path.exists():
@@ -280,7 +309,6 @@ def emscripten(session: nox.Session, runner: str) -> None:
         session,
         extras="",
         pytest_extra_args=[
-            "-x",
             "--runtime",
             f"{runner}-no-host",
             "--dist-dir",

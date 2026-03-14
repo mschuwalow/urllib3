@@ -3,9 +3,6 @@ name: Publish to PyPI
 on:
   push:
     branches:
-      # We don't publish to Test PyPI on pushes to 1.26.x yet because there is
-      # no mechanism to get a dynamic version number in the branch yet.
-      # - "1.26.x"
       - "main"
     tags:
       - "*"
@@ -20,16 +17,17 @@ jobs:
     runs-on: "ubuntu-latest"
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
+      artifact-id: ${{ steps.upload-artifact.outputs.artifact-id }}
 
     steps:
       - name: "Checkout repository"
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           fetch-depth: 0 # Needed to fetch the version from git
           persist-credentials: false
 
       - name: "Setup Python"
-        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.x"
 
@@ -47,7 +45,8 @@ jobs:
           cd dist && echo "hashes=$(sha256sum * | base64 -w0)" >> $GITHUB_OUTPUT
 
       - name: "Upload dists"
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        id: upload-artifact
         with:
           name: "dist"
           path: "dist/"
@@ -67,19 +66,25 @@ jobs:
 
     steps:
     - name: "Download dists"
-      uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       with:
-        name: "dist"
+        artifact-ids: ${{ needs.build.outputs.artifact-id }}
         path: "dist/"
 
-    - name: "Upload dists to GitHub Release"
+    - name: "Upload dists to a new GitHub Release Draft"
       env:
         GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
       run: |
-        gh release upload ${{ github.ref_name }} dist/* --repo ${{ github.repository }}
+        gh release create "$GITHUB_REF_NAME" \
+          --repo "$GITHUB_REPOSITORY" \
+          --draft \
+          --title "$GITHUB_REF_NAME" \
+          --notes "" \
+          --verify-tag
+        gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
 
     - name: "Publish dists to PyPI"
-      uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
+      uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
       with:
         attestations: true
 
@@ -94,13 +99,13 @@ jobs:
 
     steps:
     - name: "Download dists"
-      uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       with:
-        name: "dist"
+        artifact-ids: ${{ needs.build.outputs.artifact-id }}
         path: "dist/"
 
     - name: "Publish dists to Test PyPI"
-      uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
+      uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
       with:
         repository-url: https://test.pypi.org/legacy/
         attestations: true

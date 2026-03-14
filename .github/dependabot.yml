@@ -6,10 +6,11 @@ updates:
       interval: "weekly"
     labels:
       - "dependencies"
-      - "github_actions"
       - "Skip Changelog"
     ignore:
       # Ignore all patch releases as we can manually
       # upgrade if we run into a bug and need a fix.
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+    cooldown:
+      default-days: 7
